@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e1a2b">
+<title>GOOFY GOLF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='white'/%3E%3Ccircle cx='38' cy='40' r='5' fill='%230e1a2b'/%3E%3Ccircle cx='58' cy='40' r='5' fill='%230e1a2b'/%3E%3Ccircle cx='48' cy='58' r='5' fill='%230e1a2b'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<div id="app">
+  <canvas id="game-canvas"></canvas>
+
+  <!-- ================= LOADING ================= -->
+  <div id="loading" class="screen active">
+    <div class="loading-card">
+      <div class="loading-ball"></div>
+      <div class="loading-title">GOOFY GOLF</div>
+      <div class="loading-bar"><div id="loading-fill"></div></div>
+      <div id="loading-text">Teeing up…</div>
+    </div>
+  </div>
+
+  <!-- ================= MAIN MENU ================= -->
+  <div id="menu" class="screen">
+    <div class="menu-wrap">
+      <div class="game-logo">
+        <span class="logo-goofy">GOOFY</span>
+        <span class="logo-golf">GOLF</span>
+      </div>
+      <div class="menu-sub">A tiny 3D adventure with a very bouncy ball</div>
+      <div class="menu-buttons">
+        <button class="btn btn-primary btn-xl" data-action="play">
+          <span class="btn-ico">&#9654;</span> Play
+        </button>
+        <button class="btn btn-secondary" data-action="levels">
+          <span class="btn-ico">&#9873;</span> Levels
+        </button>
+        <div class="menu-row">
+          <button class="btn btn-secondary btn-half" data-action="skins">
+            <span class="btn-ico">&#9679;</span> Balls
+          </button>
+          <button class="btn btn-secondary btn-half" data-action="settings">
+            <span class="btn-ico">&#9881;</span> Settings
+          </button>
+        </div>
+      </div>
+      <div class="menu-footer">Drag back &amp; release to whack the ball!</div>
+    </div>
+  </div>
+
+  <!-- ================= LEVEL SELECT ================= -->
+  <div id="levels" class="screen">
+    <div class="panel">
+      <div class="panel-head">
+        <button class="icon-btn" data-action="back-menu" aria-label="Back">&#8592;</button>
+        <h2>Pick a Course</h2>
+        <div class="stars-total" id="levels-stars">&#9733; 0</div>
+      </div>
+      <div class="level-grid" id="level-grid"></div>
+    </div>
+  </div>
+
+  <!-- ================= BALL SKINS ================= -->
+  <div id="skins" class="screen">
+    <div class="panel">
+      <div class="panel-head">
+        <button class="icon-btn" data-action="back-menu" aria-label="Back">&#8592;</button>
+        <h2>Ball Collection</h2>
+        <div class="stars-total" id="skins-stars">&#9733; 0</div>
+      </div>
+      <div class="skin-grid" id="skin-grid"></div>
+    </div>
+  </div>
+
+  <!-- ================= SETTINGS ================= -->
+  <div id="settings" class="screen">
+    <div class="panel panel-narrow">
+      <div class="panel-head">
+        <button class="icon-btn" data-action="back-menu" aria-label="Back">&#8592;</button>
+        <h2>Settings</h2>
+        <span class="head-spacer"></span>
+      </div>
+      <div class="settings-list">
+        <div class="setting-row">
+          <span class="setting-label">&#127911; Music</span>
+          <label class="switch"><input type="checkbox" id="set-music"><span class="slider"></span></label>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">&#128266; Sound Effects</span>
+          <label class="switch"><input type="checkbox" id="set-sfx"><span class="slider"></span></label>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">&#128241; Vibration</span>
+          <label class="switch"><input type="checkbox" id="set-vibe"><span class="slider"></span></label>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">&#9889; Graphics Quality</span>
+          <div class="seg" id="set-quality">
+            <button data-q="low">Low</button>
+            <button data-q="high">High</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-label">&#127942; Aim Helper</span>
+          <label class="switch"><input type="checkbox" id="set-aim"><span class="slider"></span></label>
+        </div>
+        <button class="btn btn-danger" data-action="reset-save">Reset All Progress</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= IN-GAME HUD ================= -->
+  <div id="hud" class="screen">
+    <div class="hud-top">
+      <button class="icon-btn hud-btn" data-action="pause" aria-label="Pause">&#10073;&#10073;</button>
+      <div class="hud-center">
+        <div class="hud-level" id="hud-level">Level 1</div>
+        <div class="hud-score">
+          <div class="score-chip"><span class="chip-label">Strokes</span><span id="hud-strokes">0</span></div>
+          <div class="score-chip par"><span class="chip-label">Par</span><span id="hud-par">3</span></div>
+          <div class="score-chip stars-chip" id="hud-collect-chip"><span class="chip-label">&#11088;</span><span id="hud-collect">0/3</span></div>
+        </div>
+      </div>
+      <button class="icon-btn hud-btn" data-action="restart" aria-label="Restart">&#8635;</button>
+    </div>
+    <div class="hud-hint" id="hud-hint">Drag the ball back, then release!</div>
+    <div class="power-wrap" id="power-wrap">
+      <div class="power-label">POWER</div>
+      <div class="power-track"><div id="power-fill"></div></div>
+    </div>
+  </div>
+
+  <!-- ================= PAUSE ================= -->
+  <div id="pause" class="screen modal-screen">
+    <div class="modal">
+      <h2>Paused</h2>
+      <button class="btn btn-primary" data-action="resume">Resume</button>
+      <button class="btn btn-secondary" data-action="restart">Restart Hole</button>
+      <button class="btn btn-secondary" data-action="to-levels">Level Select</button>
+      <button class="btn btn-ghost" data-action="pause-settings">Settings</button>
+    </div>
+  </div>
+
+  <!-- ================= RESULT ================= -->
+  <div id="result" class="screen modal-screen">
+    <div class="modal result-modal">
+      <div class="result-title" id="result-title">Hole Complete!</div>
+      <div class="result-stars" id="result-stars">
+        <span class="r-star" data-i="0">&#9733;</span>
+        <span class="r-star big" data-i="1">&#9733;</span>
+        <span class="r-star" data-i="2">&#9733;</span>
+      </div>
+      <div class="result-stats">
+        <div class="rstat"><span>Strokes</span><b id="r-strokes">0</b></div>
+        <div class="rstat"><span>Par</span><b id="r-par">0</b></div>
+        <div class="rstat"><span>Treasures</span><b id="r-collect">0/3</b></div>
+        <div class="rstat"><span>Best</span><b id="r-best">–</b></div>
+      </div>
+      <div class="result-record" id="result-record"></div>
+      <div class="result-buttons">
+        <button class="btn btn-secondary" data-action="replay">&#8635; Replay</button>
+        <button class="btn btn-primary" id="btn-next" data-action="next">Next &#8594;</button>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-action="to-levels">Level Select</button>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
