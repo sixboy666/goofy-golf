@@ -11,7 +11,6 @@ import { Save } from './storage.js';
 import { Sound, vibrate } from './audio.js';
 
 const MAX_POWER = 11.5;     // release speed at full drag
-const DRAG_SCALE = 0.95;     // world units of drag for full power
 const MIN_SHOT  = 1.0;       // minimum release speed
 const FIXED_DT  = 1/60;
 const DOTS_MAX  = 26;
@@ -41,8 +40,9 @@ export class Game{
     this.celebrateT = 0;
     this.acc = 0;
 
-    this._aim = { active:false, drag:new THREE.Vector2(), power:0,
-                  dir:new THREE.Vector3(1,0,0), hit:false };
+    this._aim = { active:false, pid:null, drag:new THREE.Vector2(), power:0,
+                  dir:new THREE.Vector3(1,0,0), hit:false,
+                  sx:0, sy:0, gx:0, gz:0 };
     this._lastRest = new THREE.Vector3();
     this._ray = new THREE.Raycaster();
     this._plane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
@@ -93,7 +93,7 @@ export class Game{
     this.$('hud-par').textContent = String(level.par);
     this.$('hud-collect').textContent = '0/3';
     this.$('hud-collect-chip').classList.remove('done');
-    this.$('hud-hint').textContent = level.hint || 'Drag the ball back, then release!';
+    this.$('hud-hint').textContent = level.hint || 'Drag anywhere, release to shoot!';
     this._hidePower();
     this.dots.visible = false;
   }
@@ -107,6 +107,13 @@ export class Game{
   setPaused(p){
     this.paused = p;
     if(p && this._aim.active) this._cancelAim();
+  }
+
+  // re-fit the overview camera after a viewport size/orientation change
+  reframe(){
+    if(!this.level || this.rig.mode!=='overview') return;
+    this.rig.frameLevel(this.world.bounds, this.level.tee,
+      this.level.hole.pos || this.level.hole.move.points[0]);
   }
 
   destroy(){
@@ -177,12 +184,18 @@ export class Game{
 
   _onDown(e){
     if(this.paused || this.phase!=='aim' || !this.state) return;
-    const b = this._ballScreenPos();
-    const dx=e.clientX-(this.canvas.getBoundingClientRect().left+b.x);
-    const dy=e.clientY-(this.canvas.getBoundingClientRect().top+b.y);
-    if(Math.hypot(dx,dy) > 84) return;   // must grab near the ball
+    if(e.button !== undefined && e.button > 0) return;   // left button / touch only
+    e.preventDefault();
+    const pt = this._groundPoint(e.clientX, e.clientY);
+    if(!pt) return;
+    // drag ANYWHERE: press-and-pull like a slingshot, no need to touch the ball.
+    // This keeps the control usable on small phone screens and with a mouse.
+    try{ this.canvas.setPointerCapture(e.pointerId); }catch(_){}
     this._aim.active = true;
     this._aim.hit = true;
+    this._aim.pid = e.pointerId;
+    this._aim.sx = e.clientX; this._aim.sy = e.clientY;  // pixel origin (power)
+    this._aim.gx = pt.x;    this._aim.gz = pt.z;         // world origin (direction)
     Sound.tap();
   }
 
@@ -197,19 +210,28 @@ export class Game{
   }
 
   _onMove(e){
-    if(!this._aim.active) return;
+    if(!this._aim.active || e.pointerId !== this._aim.pid) return;
     const pt = this._groundPoint(e.clientX, e.clientY);
     if(!pt) return;
-    // drag = where the finger is relative to the ball
-    const ddx = pt.x - this.state.pos.x;
-    const ddz = pt.z - this.state.pos.z;
-    const dist = Math.hypot(ddx,ddz);
-    const t = Math.min(1, dist/DRAG_SCALE);
+    // direction = opposite of the pull, in world space
+    const ddx = pt.x - this._aim.gx;
+    const ddz = pt.z - this._aim.gz;
+    const distW = Math.hypot(ddx,ddz);
+    // power = pixel drag distance, so the feel is identical at any
+    // screen size, zoom level, mouse or finger
+    const rect = this.canvas.getBoundingClientRect();
+    const maxPx = Math.min(rect.width, rect.height)*0.32;
+    const px = Math.hypot(e.clientX-this._aim.sx, e.clientY-this._aim.sy);
+    const t = Math.min(1, px/maxPx);
     this._aim.power = MIN_SHOT + (MAX_POWER-MIN_SHOT)*t;
     this._aim.drag.set(ddx,ddz);
-    if(dist > 0.02){
-      // the shot flies opposite to the drag
-      this._aim.dir.set(-ddx/dist, 0, -ddz/dist);
+    if(distW > 0.02){
+      this._aim.dir.set(-ddx/distW, 0, -ddz/distW);
+    }else if(px > 6){
+      // fallback: use pixel delta (screen up ≈ world -z for this camera)
+      const pdx = e.clientX-this._aim.sx, pdy = e.clientY-this._aim.sy;
+      const pl = Math.hypot(pdx,pdy);
+      this._aim.dir.set(-pdx/pl, 0, -pdy/pl);
     }
     this._updateAimVisuals(t);
   }
@@ -239,9 +261,11 @@ export class Game{
     this._hidePower();
   }
 
-  _onUp(){
+  _onUp(e){
     if(!this._aim.active) return;
+    if(e && e.pointerId !== undefined && e.pointerId !== this._aim.pid) return;
     this._aim.active = false;
+    this._aim.pid = null;
     const power = this._aim.power;
 
     if(power < MIN_SHOT+0.35){
