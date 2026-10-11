@@ -15,6 +15,13 @@ const REST_SPEED = 0.30;
 
 const UP = new THREE.Vector3(0,1,0);
 
+// ---------- scratch objects (avoid per-step allocations / GC hitches) ----------
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
+const _lp = new THREE.Vector3();
+const _iq = new THREE.Quaternion();
+
 // ---------- collider factories ----------
 function aabb(center, size, kind='wall', extra={}){
   return { type:'aabb',
@@ -240,7 +247,7 @@ export class PhysicsWorld{
     if(state.grounded){
       const n = state.groundN;
       const vn = state.vel.dot(n);
-      const tv = state.vel.clone().addScaledVector(n, -vn);
+      const tv = _v1.copy(state.vel).addScaledVector(n, -vn);
       const sp = tv.length();
       const mu = state.onGate ? 0.25 : ROLL_FRICTION;
       const decel = mu * G * h;
@@ -326,9 +333,9 @@ export class PhysicsWorld{
     if(vn < 0){
       state.vel.addScaledVector(n, -(1+g.e)*vn);
       // surface velocity of the rotating arm
-      const wvec = UP.clone().multiplyScalar(g.speed);
-      const rvec = state.pos.clone().sub(g.axle);
-      const surfV = new THREE.Vector3().crossVectors(wvec, rvec);
+      _v1.set(0, g.speed, 0);
+      _v2.copy(state.pos).sub(g.axle);
+      const surfV = _v3.crossVectors(_v1, _v2);
       state.vel.addScaledVector(surfV, 0.85);
       state.onGate = true;
       if(n.y>0.5){ state.grounded = true; state.groundN.copy(n); }
@@ -337,11 +344,11 @@ export class PhysicsWorld{
   }
 
   _collideBumper(state, b){
-    const d = state.pos.clone().sub(b.c); d.y = 0;
+    const d = _v1.copy(state.pos).sub(b.c); d.y = 0;
     const dist = d.length();
     if(dist > b.r + BALL_R) return;
     let n;
-    if(dist < 1e-4) n = new THREE.Vector3(1,0,0); else n = d.multiplyScalar(1/dist);
+    if(dist < 1e-4) n = _v2.set(1,0,0); else n = d.multiplyScalar(1/dist);
     const depth = b.r + BALL_R - dist;
     state.pos.addScaledVector(n, depth + 0.002);
     const vn = state.vel.dot(n);
@@ -359,11 +366,11 @@ export class PhysicsWorld{
     if(state.loopCD>0) return;
     for(const l of this.loops){
       if(l.cd>0) continue;
-      const rel = state.pos.clone().sub(l.C);
+      const rel = _v1.copy(state.pos).sub(l.C);
       const alongAxis = rel.dot(l.axisVec);
       if(Math.abs(alongAxis) > l.halfWidth + 0.25) continue;
       // distance from bottom anchor
-      const toBottom = state.pos.clone().sub(l.bottom); toBottom.y = 0;
+      const toBottom = _v2.copy(state.pos).sub(l.bottom); toBottom.y = 0;
       const horiz = toBottom.length();
       if(horiz < 1.0 && state.pos.y < 0.9){
         const f = new THREE.Vector3().crossVectors(l.axisVec, UP).normalize();
@@ -397,8 +404,8 @@ export class PhysicsWorld{
     if(N < 0){
       // detach! ball falls free (goofy)
       this._writeLoopPos(state, t2);
-      const tangent = data.f.clone().multiplyScalar(Math.cos(t2)).addScaledVector(UP, Math.sin(t2));
-      state.vel.copy(tangent.multiplyScalar(data.thdot));
+      _v1.copy(data.f).multiplyScalar(Math.cos(t2)).addScaledVector(UP, Math.sin(t2));
+      state.vel.copy(_v1).multiplyScalar(data.thdot);
       l.cd = 0.7;
       state.loop = null;
       state.loopCD = 0.4;
@@ -421,7 +428,7 @@ export class PhysicsWorld{
 
     this._writeLoopPos(state, t2);
     // side constraint along axis
-    const rel = state.pos.clone().sub(l.C);
+    const rel = _v2.copy(state.pos).sub(l.C);
     const along = rel.dot(l.axisVec);
     if(Math.abs(along) > l.halfWidth){
       state.pos.addScaledVector(l.axisVec, (along>0?-1:1)*(Math.abs(along)-l.halfWidth));
@@ -475,7 +482,7 @@ export class PhysicsWorld{
     if(state.rimPrev > rimR && d < rimR){
       const sp = state.vel.length();
       if(sp > 7){
-        const n = new THREE.Vector3(dx,0,dz).normalize();
+        const n = _v1.set(dx,0,dz).normalize();
         const vn = state.vel.x*n.x+state.vel.z*n.z;
         if(vn < 0){
           const e = 0.45;
@@ -629,9 +636,9 @@ function sphereVsAABB(p, min, max, r){
 // Sphere vs OBB (inv may be null for unit-length axis quats)
 // ============================================================
 function sphereVsOBB(p, center, half, q, inv, r){
-  const local = p.clone().sub(center);
+  const local = _lp.copy(p).sub(center);
   if(inv) local.applyQuaternion(inv);
-  else local.applyQuaternion(q.clone().invert());
+  else local.applyQuaternion(_iq.copy(q).invert());
 
   const lx = clamp(local.x,-half.x,half.x);
   const ly = clamp(local.y,-half.y,half.y);
