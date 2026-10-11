@@ -20,6 +20,11 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// The course's static geometry never moves, so its shadow map is baked
+// once per level instead of re-rendered every frame — this removes the
+// entire shadow pass from the per-frame GPU workload. The ball uses a
+// cheap blob shadow instead (see world.js / gameplay.js).
+renderer.shadowMap.autoUpdate = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.06;
@@ -75,6 +80,7 @@ function fitSunShadows(bounds){
   sc.left=-r; sc.right=r; sc.top=r; sc.bottom=-r;
   sc.near=4; sc.far=40;
   sc.updateProjectionMatrix();
+  renderer.shadowMap.needsUpdate = true;   // re-bake after the frustum moved
 }
 
 // ============================================================
@@ -84,6 +90,7 @@ let game = null;
 let currentScreen = 'loading';
 let settingsReturn = null;      // screen to return to after in-game settings
 let lastResult = null;
+let needsFrame = true;          // one-shot render flag for 2D-only screens
 
 const $ = id => document.getElementById(id);
 
@@ -95,6 +102,7 @@ function showScreen(id){
     s.classList.toggle('active', s.id===id);
   });
   currentScreen = id;
+  needsFrame = true;   // render one frame so the backdrop is fresh
 }
 
 function toast(msg){
@@ -105,19 +113,46 @@ function toast(msg){
 }
 
 // ============================================================
-// Quality
+// Quality + adaptive resolution
 // ============================================================
+let maxDPR = 2;          // device pixel ratio cap for the current quality
+let resScale = 1;        // dynamic scale factor (lowered on slow devices)
+let frameEMA = 16.7;     // smoothed frame interval in ms
+let lastAdjust = 0;      // cooldown so the scale doesn't oscillate
+
+function applyResolution(){
+  renderer.setPixelRatio(Math.max(0.55, maxDPR*resScale));
+}
+
+// Keeps a smoothed frame time and nudges the render resolution down
+// on weaker GPUs (and back up when there is headroom). Rendering fewer
+// pixels is the single most effective smoothness lever on phones.
+function tuneResolution(now){
+  if(now - lastAdjust < 700) return;
+  if(frameEMA > 23 && resScale > 0.6){
+    resScale = Math.max(0.6, resScale-0.15);
+    applyResolution();
+    lastAdjust = now;
+  }else if(frameEMA < 15 && resScale < 1){
+    resScale = Math.min(1, resScale+0.05);
+    applyResolution();
+    lastAdjust = now;
+  }
+}
+
 function applyQuality(){
   const q = Save.getSettings().quality;
   if(q==='low'){
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio,1));
+    maxDPR = 1;
     sun.shadow.mapSize.set(1024,1024);
   }else{
     const cap = ('ontouchstart' in window) ? 1.75 : 2;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
+    maxDPR = cap;
     sun.shadow.mapSize.set(2048,2048);
   }
   if(sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
+  applyResolution();
+  renderer.shadowMap.needsUpdate = true;   // re-bake at the new map size
 }
 
 function resize(){
@@ -125,6 +160,7 @@ function resize(){
   renderer.setSize(w,h);
   camera.aspect = w/h;
   camera.updateProjectionMatrix();
+  needsFrame = true;   // 2D-only screens render one frame on demand
 }
 window.addEventListener('resize', resize);
 resize();
@@ -625,12 +661,30 @@ window.addEventListener('pointerdown', firstGesture);
 // ============================================================
 // Main loop
 // ============================================================
+// Screens whose UI fully covers the canvas don't need continuous
+// rendering — a single frame on switch keeps the backdrop correct
+// and saves a lot of battery in menus.
+const FLAT_SCREENS = new Set(['loading','menu','levels','skins','settings']);
+
 let lastT = performance.now();
 function loop(now){
-  const dt = Math.min(0.05,(now-lastT)/1000);
+  const rawMs = now - lastT;
   lastT = now;
+  const dt = Math.min(0.05, rawMs/1000);
+
   if(currentScreen==='hud' && game) game.update(dt);
-  renderer.render(scene,camera);
+
+  if(FLAT_SCREENS.has(currentScreen)){
+    if(needsFrame){ renderer.render(scene,camera); needsFrame = false; }
+  }else{
+    renderer.render(scene,camera);
+  }
+
+  // adaptive resolution — only measured while actually playing
+  if(currentScreen==='hud'){
+    frameEMA = frameEMA*0.92 + Math.min(rawMs,100)*0.08;
+    tuneResolution(now);
+  }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
