@@ -132,7 +132,7 @@ export class Game{
     const arr = new Float32Array(DOTS_MAX*3);
     geo.setAttribute('position', new THREE.BufferAttribute(arr,3));
     const mat = new THREE.PointsMaterial({
-      color: 0xffffff, size: 0.115, transparent:true, opacity:0.92,
+      color: 0xffffff, size: 0.15, transparent:true, opacity:0.95,
       depthWrite:false, sizeAttenuation:true,
       map: dotTexture(), alphaTest:0.02
     });
@@ -146,7 +146,7 @@ export class Game{
     const attr = this.dots.geometry.attributes.position;
     const n = Math.min(points.length, DOTS_MAX);
     for(let i=0;i<n;i++){
-      attr.setXYZ(i, points[i].x, points[i].y+0.015, points[i].z);
+      attr.setXYZ(i, points[i].x, points[i].y+0.06, points[i].z);
     }
     attr.needsUpdate = true;
     this.dots.geometry.setDrawRange(0,n);
@@ -302,6 +302,9 @@ export class Game{
       this.phys.updateGates(this.levelTime);
       this._syncMechanismsVisual();
       this._syncCup(this.levelTime);
+      // gentle pulse so the aim dots read as alive
+      if(this.dots.visible)
+        this.dots.material.size = 0.15 + Math.sin(this.levelTime*9)*0.02;
     }
     else if(this.phase==='rolling'){
       // fixed-step simulation
@@ -513,12 +516,18 @@ function dotTexture(){
   const c = document.createElement('canvas');
   c.width=c.height=64;
   const ctx=c.getContext('2d');
-  const g=ctx.createRadialGradient(32,32,2,32,32,30);
-  g.addColorStop(0,'rgba(255,255,255,1)');
-  g.addColorStop(0.7,'rgba(255,255,255,0.9)');
+  // dark outline ring — keeps the dot readable on light carpets
+  ctx.beginPath(); ctx.arc(32,32,26,0,Math.PI*2);
+  ctx.fillStyle='rgba(35,26,18,0.9)'; ctx.fill();
+  // vivid orange body — pops against every ground theme
+  ctx.beginPath(); ctx.arc(32,32,21,0,Math.PI*2);
+  ctx.fillStyle='#ff7a1a'; ctx.fill();
+  // hot white core
+  const g=ctx.createRadialGradient(32,32,2,32,32,11);
+  g.addColorStop(0,'rgba(255,255,255,0.95)');
   g.addColorStop(1,'rgba(255,255,255,0)');
   ctx.fillStyle=g;
-  ctx.beginPath(); ctx.arc(32,32,30,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(32,32,11,0,Math.PI*2); ctx.fill();
   _dotTex = new THREE.CanvasTexture(c);
   return _dotTex;
 }
