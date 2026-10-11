@@ -19,7 +19,10 @@ const renderer = new THREE.WebGLRenderer({
   canvas, antialias:true, stencil:false, powerPreference:'high-performance'
 });
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// PCF (not PCFSoft): the map is baked once per level, but the filtering
+// runs per fragment every frame — plain PCF is visibly identical for this
+// stylized look and measurably cheaper on mobile GPUs
+renderer.shadowMap.type = THREE.PCFShadowMap;
 // The course's static geometry never moves, so its shadow map is baked
 // once per level instead of re-rendered every frame — this removes the
 // entire shadow pass from the per-frame GPU workload. The ball uses a
