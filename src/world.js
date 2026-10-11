@@ -467,7 +467,7 @@ export class World{
     }});
   }
 
-  pulseStatue(){ if(this.statue) this.statuePulseT = performance.now()/1000; }
+  pulseStatue(t){ if(this.statue) this.statuePulseT = t; }
 
   // --------------------------------------------------------
   // Cup + flag
@@ -662,7 +662,7 @@ export class World{
       mat = new THREE.MeshPhysicalMaterial({color:skin.color,roughness:.32,
         clearcoat:.8,clearcoatRoughness:.25});
     }
-    const ball = shadow(new THREE.Mesh(new THREE.SphereGeometry(BALL_R,32,24), mat));
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R,32,24), mat);
     grp.add(ball);
     // seam ring
     const seam = new THREE.Mesh(
@@ -670,6 +670,17 @@ export class World{
       new THREE.MeshStandardMaterial({color:skin.ring,roughness:.4}));
     seam.rotation.x = Math.PI/2;
     grp.add(seam);
+    // cheap blob shadow under the ball — the baked static shadow map
+    // doesn't cover the (always moving) ball, so we fake it here instead
+    // of re-rendering the whole shadow map every frame.
+    const bs = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.62,0.62),
+      new THREE.MeshBasicMaterial({map:blobTexture(), transparent:true,
+        depthWrite:false, opacity:0.5}));
+    bs.rotation.x = -Math.PI/2;
+    bs.renderOrder = 2;
+    this.group.add(bs);
+    this.ballShadow = bs;
     this.group.add(grp);
     this.ball = grp;
     this.ballMesh = ball;
@@ -740,6 +751,25 @@ export class World{
       this.group = null;
     }
   }
+}
+
+// ============================================================
+// Soft radial blob texture for the ball's fake shadow
+// ============================================================
+let _blobTex = null;
+function blobTexture(){
+  if(_blobTex) return _blobTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64,64,4,64,64,62);
+  g.addColorStop(0,'rgba(0,0,0,0.85)');
+  g.addColorStop(0.55,'rgba(0,0,0,0.45)');
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,128,128);
+  _blobTex = new THREE.CanvasTexture(c);
+  return _blobTex;
 }
 
 // ============================================================
