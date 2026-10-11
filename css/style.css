@@ -36,6 +36,11 @@ body{
 
 #game-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
 
+/* soft vignette over the 3D view — sits below the UI screens (z-index:2),
+   adds depth/polish without touching gameplay */
+#app::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:1;
+  background:radial-gradient(ellipse at 50% 42%, transparent 58%, rgba(8,16,30,.22) 100%);}
+
 /* ---------- Screen system ---------- */
 .screen{
   position:absolute;inset:0;
