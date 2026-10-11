@@ -95,6 +95,12 @@ export class World{
     if(level.statue) this._buildStatue(level.statue);
     this._buildDecor(floors);
     this._buildCup();
+    // place the cup at the hole (moving cups get re-synced every frame
+    // by gameplay, but the initial placement matters for static holes —
+    // without this the cup visual sat at the world origin)
+    const hp = level.hole.pos || level.hole.move.points[0];
+    const cupY = hp.length>=3 ? hp[1] : 0;
+    this.cupGroup.position.set(hp[0], cupY, hp.length>=3 ? hp[2] : hp[1]);
 
     return this.group;
   }
