@@ -56,10 +56,18 @@ fillLight.position.set(-7,6,-8);
 scene.add(fillLight);
 
 // Image-based lighting: neutral studio reflections so metals, gloss
-// and clearcoat materials read correctly. One-time generation cost.
-const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
-pmrem.dispose();
+// and clearcoat materials read correctly. Generated lazily — touch
+// devices skip IBL entirely to spend their fragment budget on 60fps
+// (see the light tier in applyQuality).
+let envTex = null;
+function ensureEnv(){
+  if(!envTex){
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    envTex = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+    pmrem.dispose();
+  }
+  return envTex;
+}
 
 // cool rim light from behind for silhouette definition
 const rimLight = new THREE.DirectionalLight(0xbfd8ff, 0.5);
@@ -131,28 +139,51 @@ function applyResolution(){
 // on weaker GPUs (and back up when there is headroom). Rendering fewer
 // pixels is the single most effective smoothness lever on phones.
 function tuneResolution(now){
-  if(now - lastAdjust < 700) return;
-  if(frameEMA > 23 && resScale > 0.6){
-    resScale = Math.max(0.6, resScale-0.15);
+  if(now - lastAdjust < 500) return;
+  if(frameEMA > 21 && resScale > 0.5){
+    resScale = Math.max(0.5, resScale-0.12);
     applyResolution();
     lastAdjust = now;
-  }else if(frameEMA < 15 && resScale < 1){
+  }else if(frameEMA < 15.5 && resScale < 1){
     resScale = Math.min(1, resScale+0.05);
     applyResolution();
     lastAdjust = now;
   }
 }
 
+// Primary-pointer detection: phones/tablets are the "touch" tier.
+// (pointer:coarse) is more accurate than ontouchstart, which also fires
+// on touch-screen laptops that have plenty of GPU headroom.
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+
 function applyQuality(){
   const q = Save.getSettings().quality;
   if(q==='low'){
     maxDPR = 1;
     sun.shadow.mapSize.set(1024,1024);
+  }else if(TOUCH){
+    maxDPR = 1.6;
+    sun.shadow.mapSize.set(1024,1024);
   }else{
-    const cap = ('ontouchstart' in window) ? 1.75 : 2;
-    maxDPR = cap;
+    maxDPR = 2;
     sun.shadow.mapSize.set(2048,2048);
   }
+
+  // fragment-cost tiers: phones run the PBR shader with ONE light and no
+  // IBL — that removes 3 light loops + 2 envmap fetches per fragment
+  // (roughly half the fragment ALU), the difference between 30fps and a
+  // locked 60 on mid-range GPUs. A brighter hemisphere keeps the stylized
+  // look full; desktop keeps the full 4-light + IBL setup.
+  const fullTier = (q!=='low' && !TOUCH);
+  fillLight.visible = fullTier;
+  rimLight.visible = fullTier;
+  hemi.intensity = fullTier ? 1.05 : 1.25;
+  const wantEnv = fullTier ? ensureEnv() : null;
+  if(scene.environment !== wantEnv){
+    scene.environment = wantEnv;
+    scene.traverse(o=>{ if(o.material) o.material.needsUpdate = true; });
+  }
+
   if(sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
   applyResolution();
   renderer.shadowMap.needsUpdate = true;   // re-bake at the new map size
@@ -520,6 +551,11 @@ function enterLevel(level){
   showScreen('hud');
   game.setPaused(false);
   game.startLevel(level, Save.getSkin());
+  // adaptation warm-up: the first frames compile shaders (one-time GPU
+  // stalls). Ignore them so the EMA doesn't wrongly drop the resolution,
+  // and restart from a healthy baseline each level.
+  frameEMA = 16.7;
+  lastAdjust = performance.now() + 800;
 }
 
 function exitToLevels(){
