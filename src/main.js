@@ -516,13 +516,15 @@ function enterLevel(level){
       onLevelStart: fitSunShadows
     });
   }
+  clearResultTimers();
   showScreen('hud');
   game.setPaused(false);
   game.startLevel(level, Save.getSkin());
 }
 
 function exitToLevels(){
-  if(game) game.setPaused(false);
+  if(game){ game.abortLevel(); game.setPaused(false); }
+  clearResultTimers();
   buildLevelGrid();
   showScreen('levels');
 }
@@ -542,8 +544,16 @@ function resumeGame(){
   showScreen('hud');
 }
 
+// star-pop timers — cancelled if the player leaves the result screen early
+let resultTimers = [];
+function clearResultTimers(){
+  resultTimers.forEach(clearTimeout);
+  resultTimers = [];
+}
+
 function showResult(res){
   lastResult = res;
+  clearResultTimers();
   const level = game.level;
 
   $('result-title').textContent = res.strokes===1 ? 'HOLE IN ONE!' : 'Hole Complete!';
@@ -573,9 +583,9 @@ function showResult(res){
   const stars=document.querySelectorAll('#result-stars .r-star');
   stars.forEach(s=>s.classList.remove('lit','pop'));
   stars.forEach((s,i)=>{
-    setTimeout(()=>{
+    resultTimers.push(setTimeout(()=>{
       if(i<res.stars){ s.classList.add('lit','pop'); Sound.pop(); }
-    }, 350+i*320);
+    }, 350+i*320));
   });
 
   showScreen('result');
@@ -683,7 +693,7 @@ window.addEventListener('contextmenu', e=>{
 // Screens whose UI fully covers the canvas don't need continuous
 // rendering — a single frame on switch keeps the backdrop correct
 // and saves a lot of battery in menus.
-const FLAT_SCREENS = new Set(['loading','menu','levels','skins','settings']);
+const FLAT_SCREENS = new Set(['loading','menu','levels','skins','settings','pause','result']);
 
 let lastT = performance.now();
 function loop(now){
