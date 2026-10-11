@@ -444,7 +444,9 @@ export class Game{
       const h = Math.max(0, this.state.pos.y - BALL_R - this._groundY);
       const k = Math.max(0.3, 1 - h*0.22);       // fades/shrinks with height
       sh.visible = this.phase !== 'celebrate';
-      sh.position.set(this.state.pos.x, this._groundY + 0.012, this.state.pos.z);
+      // +0.045 keeps the blob above the visual carpet/cap surfaces
+      // (carpet top ~+0.015, platform cap ~+0.03) so it never z-fights
+      sh.position.set(this.state.pos.x, this._groundY + 0.045, this.state.pos.z);
       sh.scale.setScalar(k);
       sh.material.opacity = 0.5*k;
     }
