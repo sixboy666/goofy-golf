@@ -17,6 +17,7 @@ const DOTS_MAX  = 26;
 
 // scratch vector reused every frame (no per-frame allocation)
 const _cupTmp = new THREE.Vector3();
+const _velTmp = new THREE.Vector3();   // aim velocity scratch
 
 export class Game{
   constructor({renderer, scene, camera, canvas, lowq=false}, hooks={}){
@@ -43,6 +44,8 @@ export class Game{
     this._aim = { active:false, pid:null, drag:new THREE.Vector2(), power:0,
                   dir:new THREE.Vector3(1,0,0), hit:false,
                   sx:0, sy:0, gx:0, gz:0 };
+    this._drainTimer = null;      // pending hole-out result callback
+    this._lastPredict = 0;        // throttle aim prediction to ~40Hz
     this._lastRest = new THREE.Vector3();
     this._ray = new THREE.Raycaster();
     this._plane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
@@ -62,6 +65,8 @@ export class Game{
   // level lifecycle
   // ----------------------------------------------------------
   startLevel(level, skinId){
+    // cancel any pending hole-out callback from the previous attempt
+    if(this._drainTimer){ clearTimeout(this._drainTimer); this._drainTimer = null; }
     this.level = level;
     this.phys.compile(level);
 
@@ -116,7 +121,16 @@ export class Game{
       this.level.hole.pos || this.level.hole.move.points[0]);
   }
 
+  // stop everything pending — used when leaving to menus mid-level
+  abortLevel(){
+    if(this._drainTimer){ clearTimeout(this._drainTimer); this._drainTimer = null; }
+    this._cancelAim();
+  }
+
   destroy(){
+    this.abortLevel();
+    if(this._unbind) this._unbind();
+    this.scene.remove(this.dots);
     if(this.world){
       this.scene.remove(this.world.group);
       this.scene.remove(this.world.ball);
@@ -184,6 +198,7 @@ export class Game{
 
   _onDown(e){
     if(this.paused || this.phase!=='aim' || !this.state) return;
+    if(this._aim.active) return;                          // already dragging
     if(e.button !== undefined && e.button > 0) return;   // left button / touch only
     e.preventDefault();
     const pt = this._groundPoint(e.clientX, e.clientY);
@@ -243,7 +258,11 @@ export class Game{
     this.$('power-fill').style.width = (t*100).toFixed(1)+'%';
 
     if(Save.getSettings().aim){
-      const vel = this._aim.dir.clone().multiplyScalar(this._aim.power);
+      // pointermove can fire at 120Hz — throttle the (expensive) prediction
+      const now = performance.now();
+      if(now - this._lastPredict < 25 && this.dots.visible) return;
+      this._lastPredict = now;
+      const vel = _velTmp.copy(this._aim.dir).multiplyScalar(this._aim.power);
       const pts = this.phys.predict(this.level, this.state.pos, vel, DOTS_MAX);
       if(pts.length > 1) this._showDots(pts); else this.dots.visible=false;
     }
@@ -436,7 +455,9 @@ export class Game{
     this.rig.setFocus();
 
     const got = Math.min(3,this.treasures);
-    setTimeout(()=>{
+    // tracked so a restart / exit during the celebrate window cancels it
+    this._drainTimer = setTimeout(()=>{
+      this._drainTimer = null;
       const stars = starsForStrokes(this.strokes, this.level.par);
       const res = Save.recordResult(this.level.id, this.strokes, stars, got);
       if(this.strokes===1) Sound.holeInOne();
