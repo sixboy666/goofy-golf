@@ -21,6 +21,10 @@ const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
 const _lp = new THREE.Vector3();
 const _iq = new THREE.Quaternion();
+const _cup = new THREE.Vector3();   // cup position scratch (checkHole)
+// reusable contact (collision functions write into it; callers consume
+// the result immediately, so sharing one instance is safe)
+const _contact = { n:new THREE.Vector3(), depth:0 };
 
 // ---------- collider factories ----------
 function aabb(center, size, kind='wall', extra={}){
@@ -51,6 +55,7 @@ export class PhysicsWorld{
     this.springs = [];
     this.pipes = [];
     this.loops = [];
+    this._zones = null;   // invalidate prediction zone cache (per-level!)
     this.collects = level.collect ? level.collect.map(c=>({
       p:new THREE.Vector3(c[0],c[1] ?? 0.5, c[2]), taken:false
     })) : [];
@@ -149,18 +154,22 @@ export class PhysicsWorld{
     this.hole = level.hole;
   }
 
-  // current cup position (supports moving cup)
+  // current cup position (supports moving cup).
+  // Hole coords may be 2D [x,z] (cup sits at floor level) or 3D [x,y,z]
+  // (cup base height, e.g. on a platform tower).
   cupPosition(time, out){
     const h = this.hole;
     if(h.move){
-      out.copy(this._movingPos(h, time));
+      this._movingPos(h, time, out);
     }else{
-      out.set(h.pos[0], h.pos[1] ?? 0, h.pos[2]);
+      const p = h.pos;
+      if(p.length >= 3) out.set(p[0], p[1], p[2]);
+      else out.set(p[0], 0, p[1]);
     }
     return out;
   }
 
-  _movingPos(h, t){
+  _movingPos(h, t, out){
     const m = h.move;
     const pts = m.points;
     const segT = m.period / pts.length;
@@ -170,12 +179,12 @@ export class PhysicsWorld{
     const i = Math.min(pts.length-2, Math.floor(u/segT));
     const f = (u - i*segT)/segT;
     const a = pts[i], b = pts[i+1];
-    this._v1 = this._v1 || new THREE.Vector3();
-    return this._v1.set(
-      a[0]+(b[0]-a[0])*f,
-      (a[1]!==undefined?a[1]:0),
-      a[2]+(b[2]-a[2])*f
-    );
+    if(a.length >= 3){
+      out.set(a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f);
+    }else{
+      out.set(a[0]+(b[0]-a[0])*f, 0, a[1]+(b[1]-a[1])*f);
+    }
+    return out;
   }
 
   resetMechanisms(){
@@ -399,6 +408,20 @@ export class PhysicsWorld{
 
     const t2 = data.theta;
 
+    // rolled back out through the entry — detach at the bottom rolling
+    // backward (prevents the ball sinking below the floor / oscillating)
+    if(t2 <= 0){
+      state.pos.copy(l.bottom).addScaledVector(UP, BALL_R);
+      state.vel.copy(data.f).multiplyScalar(Math.max(data.thdot, -2.5));
+      l.cd = 0.7;
+      state.loop = null;
+      state.loopCD = 0.6;
+      state.grounded = true;
+      state.groundN.copy(UP);
+      state.events.push({type:'loopFail'});
+      return;
+    }
+
     // required inward normal force: N = v²/rho - g cos(theta)
     const N = data.thdot*data.thdot/l.radius - G*Math.cos(t2);
     if(N < 0){
@@ -473,7 +496,7 @@ export class PhysicsWorld{
 
   // ---------- cup capture / rim ----------
   _checkHole(state){
-    const cup = this.cupPosition(state.time, this._v2 || (this._v2=new THREE.Vector3()));
+    const cup = this.cupPosition(state.time, _cup);
     const dx = state.pos.x - cup.x, dz = state.pos.z - cup.z;
     const d = Math.hypot(dx,dz);
     const capR = 0.27, rimR = 0.36;
@@ -592,19 +615,36 @@ export class PhysicsWorld{
         max:new THREE.Vector3(g.axle.x+g.half.x+0.1,g.axle.y+g.half.y,g.axle.z+g.half.x+0.1)
       });
     }
-    // hole
-    const cup = this.cupPosition(0,new THREE.Vector3());
-    zones.push({
-      min:new THREE.Vector3(cup.x-0.4,cup.y-0.3,cup.z-0.4),
-      max:new THREE.Vector3(cup.x+0.4,cup.y+0.6,cup.z+0.4)
-    });
+    // hole — for a moving cup, cover the whole path so prediction
+    // stops anywhere the cup can be
+    if(this.hole.move){
+      const pts = this.hole.move.points;
+      let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9,topY=0;
+      for(const p of pts){
+        minX=Math.min(minX,p[0]); maxX=Math.max(maxX,p[0]);
+        const z = p.length>=3 ? p[2] : p[1];
+        const y = p.length>=3 ? p[1] : 0;
+        minZ=Math.min(minZ,z); maxZ=Math.max(maxZ,z); topY=Math.max(topY,y);
+      }
+      zones.push({
+        min:new THREE.Vector3(minX-0.4, topY-0.3, minZ-0.4),
+        max:new THREE.Vector3(maxX+0.4, topY+0.6, maxZ+0.4)
+      });
+    }else{
+      const cup = this.cupPosition(0,_cup);
+      zones.push({
+        min:new THREE.Vector3(cup.x-0.4,cup.y-0.3,cup.z-0.4),
+        max:new THREE.Vector3(cup.x+0.4,cup.y+0.6,cup.z+0.4)
+      });
+    }
     this._zones = zones;
     return zones;
   }
 }
 
 // ============================================================
-// Sphere vs AABB
+// Sphere vs AABB — writes into the shared _contact (callers consume
+// the result immediately, before any other collision query)
 // ============================================================
 function sphereVsAABB(p, min, max, r){
   const qx = clamp(p.x,min.x,max.x);
@@ -615,6 +655,7 @@ function sphereVsAABB(p, min, max, r){
 
   if(len2 > r*r) return null;
 
+  const n = _contact.n;
   if(len2 < 1e-10){
     // center is inside the box: push out along the smallest face
     const dMinX = p.x-min.x, dMaxX = max.x-p.x;
@@ -625,11 +666,15 @@ function sphereVsAABB(p, min, max, r){
     if(m===dMinX) nx=-1; else if(m===dMaxX) nx=1;
     else if(m===dMinY) ny=-1; else if(m===dMaxY) ny=1;
     else if(m===dMinZ) nz=-1; else nz=1;
-    return { n:new THREE.Vector3(nx,ny,nz), depth:m+r };
+    n.set(nx,ny,nz);
+    _contact.depth = m+r;
+    return _contact;
   }
 
   const len = Math.sqrt(len2);
-  return { n:new THREE.Vector3(dx/len,dy/len,dz/len), depth:r-len };
+  n.set(dx/len,dy/len,dz/len);
+  _contact.depth = r-len;
+  return _contact;
 }
 
 // ============================================================
@@ -647,22 +692,26 @@ function sphereVsOBB(p, center, half, q, inv, r){
   const len2 = dx*dx+dy*dy+dz*dz;
   if(len2 > r*r) return null;
 
-  let ln;
+  const n = _contact.n;
+  let depth;
   if(len2 < 1e-10){
     const d = [half.x-Math.abs(local.x), half.y-Math.abs(local.y), half.z-Math.abs(local.z)];
     const i = d.indexOf(Math.min(...d));
-    const ax = new THREE.Vector3(i===0?Math.sign(local.x)||1:0, i===1?Math.sign(local.y)||1:0, i===2?Math.sign(local.z)||1:0);
-    ln = ax;
-    var depth = d[i]+r;
+    n.set(
+      i===0 ? Math.sign(local.x)||1 : 0,
+      i===1 ? Math.sign(local.y)||1 : 0,
+      i===2 ? Math.sign(local.z)||1 : 0);
+    depth = d[i]+r;
   }else{
     const len = Math.sqrt(len2);
-    ln = new THREE.Vector3(dx/len,dy/len,dz/len);
+    n.set(dx/len,dy/len,dz/len);
     depth = r-len;
   }
-  const n = ln.applyQuaternion(q);
+  n.applyQuaternion(q);
   // normalize in case of quaternion drift
   if(n.lengthSq()>0) n.normalize();
-  return { n, depth };
+  _contact.depth = depth;
+  return _contact;
 }
 
 function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
