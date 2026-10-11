@@ -26,7 +26,11 @@ export class CamRig{
     const cz=(bounds.minZ+bounds.maxZ)/2;
     const W=bounds.maxX-bounds.minX, D=bounds.maxZ-bounds.minZ;
     const span = Math.max(W,D);
-    const dist = span * 1.05;
+    // narrow (portrait) screens have a tiny horizontal FOV — pull the
+    // camera back so the course never crops on phones; landscape/PC keeps
+    // the original tighter framing
+    const fitK = Math.max(1, 1.05/Math.max(this.camera.aspect, 0.4));
+    const dist = span * 1.05 * fitK;
     // angle the view a little toward the tee so the ball is easy to grab
     this._overviewCenter = new THREE.Vector3(cx,0.25,cz);
     this._overviewPos = new THREE.Vector3(cx, dist*0.72, cz + dist*0.85);
