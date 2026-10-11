@@ -130,10 +130,18 @@ export class World{
       this._m(pal.slab,{roughness:0.9})));
     slab.position.set(cx,-.32,cz);
     this.group.add(slab);
-    // carpet top, slightly inset
+    // carpet top, slightly inset — mowed-stripe fairway texture gives the
+    // fine surface detail that reads as "golf" at a glance
+    const stripeKey = pal.carpet+'|fairway|'+Math.max(2,Math.round(w/1.1));
+    let carpetMat = this._mats[stripeKey];
+    if(!carpetMat){
+      carpetMat = new THREE.MeshStandardMaterial({
+        color:pal.carpet, roughness:0.95, metalness:0.02,
+        map:fairwayTexture(Math.max(2,Math.round(w/1.1)))});
+      this._mats[stripeKey] = carpetMat;
+    }
     const top = shadow(new THREE.Mesh(
-      new THREE.BoxGeometry(w-0.14, 0.05, d-0.14),
-      this._m(pal.carpet,{roughness:0.95})), false, true);
+      new THREE.BoxGeometry(w-0.14, 0.05, d-0.14), carpetMat), false, true);
     top.position.set(cx,-.01,cz);
     this.group.add(top);
     // edge trim strips
@@ -744,13 +752,35 @@ export class World{
       this.group.traverse(o=>{
         if(o.geometry) o.geometry.dispose();
         if(o.material){
-          if(Array.isArray(o.material)) o.material.forEach(m=>m.dispose());
-          else o.material.dispose();
+          const ms = Array.isArray(o.material) ? o.material : [o.material];
+          ms.forEach(m=>{ if(m.map) m.map.dispose(); m.dispose(); });
         }
       });
       this.group = null;
     }
   }
+}
+
+// ============================================================
+// Mowed-stripe fairway texture (multiplies against carpet color)
+// ============================================================
+let _fairwayCanvas = null;
+function fairwayTexture(repeatX){
+  if(!_fairwayCanvas){
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 64;
+    const ctx = c.getContext('2d');
+    // alternating near-white bands so the base carpet color tints through
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,256,64);
+    ctx.fillStyle = '#e2e2e2'; ctx.fillRect(0,0,128,64);
+    _fairwayCanvas = c;
+  }
+  const t = new THREE.CanvasTexture(_fairwayCanvas);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(repeatX, 1);
+  t.anisotropy = 4;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 // ============================================================
