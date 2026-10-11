@@ -16,6 +16,7 @@ export class CamRig{
     this.look = new THREE.Vector3();
     this._desired = new THREE.Vector3();
     this._lookDesired = new THREE.Vector3();
+    this._tmp = new THREE.Vector3();
     this.focusT = 0;
   }
 
@@ -47,8 +48,8 @@ export class CamRig{
       this._desired.copy(this._overviewPos);
       this._lookDesired.copy(this._overviewCenter);
       // drift the look slightly toward the ball
-      this._lookDesired.lerp(
-        new THREE.Vector3(ballPos.x,0.15,ballPos.z), 0.18);
+      this._tmp.set(ballPos.x,0.15,ballPos.z);
+      this._lookDesired.lerp(this._tmp, 0.18);
       k = 2.0;
     }
     else if(this.mode==='follow'){
