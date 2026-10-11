@@ -161,6 +161,7 @@ function resize(){
   camera.aspect = w/h;
   camera.updateProjectionMatrix();
   needsFrame = true;   // 2D-only screens render one frame on demand
+  if(game) game.reframe();   // keep the course framed after rotate/resize
 }
 window.addEventListener('resize', resize);
 resize();
@@ -657,6 +658,21 @@ function firstGesture(){
   window.removeEventListener('pointerdown', firstGesture);
 }
 window.addEventListener('pointerdown', firstGesture);
+
+// ============================================================
+// Desktop convenience: keyboard shortcuts + no context menu
+// ============================================================
+window.addEventListener('keydown', e=>{
+  if(e.key === 'Escape'){
+    if(currentScreen==='hud') pauseGame();
+    else if(currentScreen==='pause') resumeGame();
+  }else if((e.key==='r' || e.key==='R') && currentScreen==='hud' && game){
+    game.resetLevel();
+  }
+});
+window.addEventListener('contextmenu', e=>{
+  if(e.target === canvas) e.preventDefault();
+});
 
 // ============================================================
 // Main loop
