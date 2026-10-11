@@ -16,6 +16,9 @@ const MIN_SHOT  = 1.0;       // minimum release speed
 const FIXED_DT  = 1/60;
 const DOTS_MAX  = 26;
 
+// scratch vector reused every frame (no per-frame allocation)
+const _cupTmp = new THREE.Vector3();
+
 export class Game{
   constructor({renderer, scene, camera, canvas, lowq=false}, hooks={}){
     this.renderer = renderer;
@@ -76,6 +79,7 @@ export class Game{
     this.levelTime = 0;
     this.settleT = 0;
     this.acc = 0;
+    this._groundY = 0;
     this.phase = 'aim';
 
     this._syncCup(0);
@@ -252,7 +256,7 @@ export class Game{
 
     Sound.putt(power/MAX_POWER);
     vibrate(14);
-    this.world.pulseStatue();
+    this.world.pulseStatue(this.levelTime);
 
     this.phase = 'rolling';
     this.settleT = 0;
@@ -305,7 +309,7 @@ export class Game{
     }
 
     this.world.update(dt, this.levelTime);
-    const cup = this.phys.cupPosition(this.levelTime, new THREE.Vector3());
+    const cup = this.phys.cupPosition(this.levelTime, _cupTmp);
     this.rig.update(dt, this.state.pos, this.state.vel, cup);
   }
 
@@ -433,6 +437,18 @@ export class Game{
       this.world.ballMesh.quaternion.premultiply(this._rollQ);
     }
 
+    // blob shadow tracks the ball's ground position
+    const sh = this.world.ballShadow;
+    if(sh){
+      if(this.state.grounded) this._groundY = this.state.pos.y - BALL_R;
+      const h = Math.max(0, this.state.pos.y - BALL_R - this._groundY);
+      const k = Math.max(0.3, 1 - h*0.22);       // fades/shrinks with height
+      sh.visible = this.phase !== 'celebrate';
+      sh.position.set(this.state.pos.x, this._groundY + 0.012, this.state.pos.z);
+      sh.scale.setScalar(k);
+      sh.material.opacity = 0.5*k;
+    }
+
     if(this.phase==='aim'){
       // gentle idle bob so the ball feels alive / grabbable
       const b = 1 + Math.sin(this.levelTime*3.1)*0.012;
@@ -450,7 +466,7 @@ export class Game{
 
   _syncCup(time){
     if(!this.level.hole.move) return;
-    const p = this.phys.cupPosition(time, new THREE.Vector3());
+    const p = this.phys.cupPosition(time, _cupTmp);
     this.world.cupGroup.position.set(p.x, p.y, p.z);
   }
 }
