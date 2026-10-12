@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BALL_R } from './physics.js';
 import { SKINS } from './skins.js';
 
@@ -94,6 +95,7 @@ export class World{
     for(let i=0;i<(level.collect||[]).length;i++) this._buildCollect(level.collect[i], i);
     if(level.statue) this._buildStatue(level.statue);
     this._buildDecor(floors);
+    this._mergeStatic();   // collapse ~100 static meshes into a few draw calls
     this._buildCup();
     // place the cup at the hole (moving cups get re-synced every frame
     // by gameplay, but the initial placement matters for static holes —
@@ -127,6 +129,45 @@ export class World{
 
   // segment count scaler for low-quality mode
   seg(n){ return this.low ? Math.max(6, Math.round(n*0.55)) : n; }
+
+  // --------------------------------------------------------
+  // Draw-call reduction: floors, walls, platforms, trims and
+  // decor are fully static, so bake each material group into ONE
+  // merged mesh. ~100 draw calls become roughly a dozen — the
+  // biggest single frame-rate win on mobile GPUs. Animated parts
+  // (gate arms, bumpers, springs, pipes, loops, statue, cup,
+  // collectibles, AC fan, ball shadow) are Groups or flagged
+  // noMerge, so they stay independent.
+  // --------------------------------------------------------
+  _mergeStatic(){
+    const buckets = new Map();   // material.uuid|cast -> {mat, cast, meshes:[]}
+    for(const child of this.group.children){
+      if(!child.isMesh || child.userData.noMerge || child === this.ballShadow) continue;
+      const key = child.material.uuid + '|' + (child.castShadow ? 1 : 0);
+      let b = buckets.get(key);
+      if(!b){ b = {mat: child.material, cast: child.castShadow, meshes: []}; buckets.set(key, b); }
+      b.meshes.push(child);
+    }
+    for(const b of buckets.values()){
+      if(b.meshes.length < 2) continue;   // singleton: merging gains nothing
+      const geos = [];
+      for(const m of b.meshes){
+        m.updateMatrix();
+        const g = m.geometry.clone().applyMatrix4(m.matrix);
+        // drop per-geometry groups — merged mesh uses a single material
+        g.clearGroups();
+        geos.push(g);
+      }
+      const merged = mergeGeometries(geos, false);
+      if(!merged){ geos.forEach(g=>g.dispose()); continue; }  // attribute mismatch: keep originals
+      geos.forEach(g=>g.dispose());
+      const mesh = new THREE.Mesh(merged, b.mat);
+      mesh.castShadow = b.cast;
+      mesh.receiveShadow = true;
+      for(const m of b.meshes) this.group.remove(m);
+      this.group.add(mesh);
+    }
+  }
 
   _buildFloor(f){
     const [w,d] = f.s; const [cx,cz] = f.p; const pal=this.pal;
@@ -645,10 +686,12 @@ export class World{
     const fan=new THREE.Mesh(new THREE.TorusGeometry(.16,.03,8,18),
       this._m(0x5b6b80,{roughness:.5}));
     fan.position.set(cx+W/2-.55,.25,cz-D/2+.34);
+    fan.userData.noMerge = true;
     this.group.add(fan);
     const blade=new THREE.Mesh(new THREE.BoxGeometry(.24,.03,.015),
       this._m(0x9db0cc));
     blade.position.copy(fan.position);
+    blade.userData.noMerge = true;
     this.group.add(blade);
     this.anims.push({update(t){ blade.rotation.z=t*6; fan.rotation.z=t*6; }});
   }
