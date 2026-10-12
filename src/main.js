@@ -14,9 +14,17 @@ import { Game } from './gameplay.js';
 // ============================================================
 // Renderer / scene / camera / lights
 // ============================================================
+// Primary-pointer detection: phones/tablets are the "touch" tier.
+// (pointer:coarse) is more accurate than ontouchstart, which also fires
+// on touch-screen laptops that have plenty of GPU headroom.
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+
 const canvas = document.getElementById('game-canvas');
 const renderer = new THREE.WebGLRenderer({
-  canvas, antialias:true, stencil:false, powerPreference:'high-performance'
+  // MSAA is one of the most expensive features on mobile tiled GPUs
+  // (multiplies per-fragment cost + memory bandwidth). Phones skip it —
+  // at 1.6x pixel ratio edges stay clean enough. Desktop keeps AA.
+  canvas, antialias:!TOUCH, stencil:false, powerPreference:'high-performance'
 });
 renderer.shadowMap.enabled = true;
 // PCF (not PCFSoft): the map is baked once per level, but the filtering
@@ -150,11 +158,6 @@ function tuneResolution(now){
     lastAdjust = now;
   }
 }
-
-// Primary-pointer detection: phones/tablets are the "touch" tier.
-// (pointer:coarse) is more accurate than ontouchstart, which also fires
-// on touch-screen laptops that have plenty of GPU headroom.
-const TOUCH = matchMedia('(pointer: coarse)').matches;
 
 function applyQuality(){
   const q = Save.getSettings().quality;
